@@ -1,0 +1,75 @@
+name: Reconcile release
+
+# Safety net for releases that release.yml's `push` trigger cannot see.
+#
+# Actions taken with the default GITHUB_TOKEN don't trigger other workflows'
+# event listeners (GitHub's recursion guard), so a Dependabot PR merged by
+# dependabot-auto-merge.yml lands on master without firing release.yml. Rather
+# than having the auto-merge job stay alive polling for its own PR to merge,
+# this job observes after the fact: if the tip of master carries shipping
+# changes that were never released, dispatch release.yml.
+#
+# This lives in its own file on purpose. A public repo's scheduled workflows
+# are auto-disabled after 60 days of repository inactivity, and that disables
+# the *whole workflow* (state disabled_inactivity), not just its schedule
+# trigger. Putting the cron here means an inactivity disable costs you the
+# safety net only — release.yml has no `schedule:` trigger, so its push-driven
+# releases can never be switched off this way. It does not re-enable itself
+# when activity resumes; re-enable with `gh workflow enable release-reconcile.yml`.
+
+on:
+  # 08:00 UTC is 03:00/04:00 America/New_York — the same New York day the
+  # date-based tag will be computed for, and off the top-of-hour peak where
+  # GitHub's scheduler is most likely to delay a run.
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: release-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          # Full history + tags, so `git describe` can find the last release.
+          fetch-depth: 0
+
+      - name: Look for unreleased shipping changes on master
+        id: check
+        run: |
+          if ! LAST=$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null); then
+            echo "::notice::No v* tag found; leaving the first release to a push."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Mirror release.yml's paths-ignore so a docs-only day doesn't cut a
+          # release and redeploy an unchanged app. When HEAD is itself the
+          # last tag this diff is empty, which covers "nothing new" too.
+          CHANGED=$(git diff --name-only "${LAST}..HEAD" -- . ':(exclude)docs/**')
+
+          if [[ -z "$CHANGED" ]]; then
+            echo "::notice::No unreleased shipping changes since ${LAST}."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unreleased shipping changes since ${LAST}:"
+            echo "$CHANGED"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # release.yml re-checks whether this exact commit is already tagged, so
+      # a race with a push-triggered run resolves to a single release.
+      - name: Dispatch release
+        if: steps.check.outputs.release == 'true'
+        run: gh workflow run release.yml --ref master

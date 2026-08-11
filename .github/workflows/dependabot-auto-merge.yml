@@ -1,0 +1,37 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request:
+    branches: [master]
+
+# Dependabot rebases a PR (a `synchronize` event) whenever master moves;
+# there's no value in re-running metadata + a no-op `--auto` against a
+# superseded SHA.
+concurrency:
+  group: automerge-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Fetch dependency metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # --auto only flips a flag and returns; GitHub merges the PR itself once
+      # the required "test" check passes, however long that takes. Nothing
+      # here waits for the merge — the resulting push won't fire release.yml
+      # (it's GITHUB_TOKEN-authored), so release-reconcile.yml picks it up.
+      - name: Enable auto-merge for patch/minor bumps
+        if: contains(fromJSON('["version-update:semver-patch","version-update:semver-minor"]'), steps.metadata.outputs.update-type)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge "$PR_URL" --auto --squash
