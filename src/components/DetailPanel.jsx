@@ -1,4 +1,5 @@
 import { useGraphStore } from '../store/useGraphStore.js';
+import { useShallow } from 'zustand/react/shallow';
 import { getNodeColor, getDeptColor } from '../lib/colors.js';
 
 function Section({ title, items }) {
@@ -25,11 +26,11 @@ function NodeButton({ node, onSelect }) {
 }
 
 export default function DetailPanel() {
-  const { selectedNodeId, rawData, setSelectedNodeId } = useGraphStore(s => ({
+  const { selectedNodeId, rawData, setSelectedNodeId } = useGraphStore(useShallow(s => ({
     selectedNodeId: s.selectedNodeId,
     rawData: s.rawData,
     setSelectedNodeId: s.setSelectedNodeId,
-  }));
+  })));
 
   if (!selectedNodeId || !rawData) return null;
   const selectedNode = rawData.nodes.find(n => n.id === selectedNodeId);

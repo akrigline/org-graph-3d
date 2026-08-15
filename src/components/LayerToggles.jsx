@@ -1,4 +1,5 @@
 import { useGraphStore } from '../store/useGraphStore.js';
+import { useShallow } from 'zustand/react/shallow';
 
 const BUTTONS = [
   { key: 'org', label: 'Org' },
@@ -9,7 +10,7 @@ const BUTTONS = [
 ];
 
 export default function LayerToggles() {
-  const { layers, toggleLayer } = useGraphStore(s => ({ layers: s.layers, toggleLayer: s.toggleLayer }));
+  const { layers, toggleLayer } = useGraphStore(useShallow(s => ({ layers: s.layers, toggleLayer: s.toggleLayer })));
 
   return (
     <div className="fixed top-5 right-5 flex gap-1.5 z-10">
